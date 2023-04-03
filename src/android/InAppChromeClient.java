@@ -34,6 +34,7 @@ import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.GeolocationPermissions.Callback;
+import android.webkit.PermissionRequest;
 
 public class InAppChromeClient extends WebChromeClient {
 
@@ -44,6 +45,12 @@ public class InAppChromeClient extends WebChromeClient {
     public InAppChromeClient(CordovaWebView webView) {
         super();
         this.webView = webView;
+    }
+       
+    public void onPermissionRequest(final PermissionRequest request) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            request.grant(request.getResources());
+        }
     }
     /**
      * Handle database quota exceeded notification.
