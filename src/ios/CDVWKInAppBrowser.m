@@ -826,8 +826,8 @@ BOOL isExiting = FALSE;
     logoView.contentMode = UIViewContentModeScaleAspectFit;
     logoView.translatesAutoresizingMaskIntoConstraints = NO; // Enable Auto Layout
 
-    // Load the logo image from the URL provided in _browserOptions.brandLogo
-    NSURL *logoURL = [NSURL URLWithString:_browserOptions.brandLogo ?: @""];
+    // Load the logo image from the URL provided in _browserOptions.brandlogo
+    NSURL *logoURL = [NSURL URLWithString:_browserOptions.brandlogo ?: @""];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSData *imageData = [NSData dataWithContentsOfURL:logoURL];
         if (imageData) {
