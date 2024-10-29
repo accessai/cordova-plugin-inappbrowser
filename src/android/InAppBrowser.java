@@ -24,6 +24,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.BitmapFactory;
+import android.os.AsyncTask;
 import android.os.Parcelable;
 import android.provider.Browser;
 import android.content.res.Resources;
@@ -35,6 +37,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -74,6 +77,7 @@ import org.apache.cordova.PluginResult;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -81,6 +85,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.StringTokenizer;
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -108,6 +113,7 @@ public class InAppBrowser extends CordovaPlugin {
     private static final String TOOLBAR_COLOR = "toolbarcolor";
     private static final String CLOSE_BUTTON_CAPTION = "closebuttoncaption";
     private static final String CLOSE_BUTTON_COLOR = "closebuttoncolor";
+    private static  final String BRAND_LOGO = "brandLogo";
     private static final String LEFT_TO_RIGHT = "lefttoright";
     private static final String HIDE_NAVIGATION = "hidenavigationbuttons";
     private static final String NAVIGATION_COLOR = "navigationbuttoncolor";
@@ -119,7 +125,7 @@ public class InAppBrowser extends CordovaPlugin {
 
     private static final int TOOLBAR_HEIGHT = 48;
 
-    private static final List customizableOptions = Arrays.asList(CLOSE_BUTTON_CAPTION, TOOLBAR_COLOR, NAVIGATION_COLOR, CLOSE_BUTTON_COLOR, FOOTER_COLOR);
+    private static final List customizableOptions = Arrays.asList(CLOSE_BUTTON_CAPTION, BRAND_LOGO, TOOLBAR_COLOR, NAVIGATION_COLOR, CLOSE_BUTTON_COLOR, FOOTER_COLOR);
 
     private InAppBrowserDialog dialog;
     private WebView inAppWebView;
@@ -137,6 +143,8 @@ public class InAppBrowser extends CordovaPlugin {
     private ValueCallback<Uri[]> mUploadCallback;
     private final static int FILECHOOSER_REQUESTCODE = 1;
     private String closeButtonCaption = "";
+    private String brandLogoURL = "";
+    private ImageView brandLogoImgView;
     private String closeButtonColor = "";
     private boolean leftToRight = false;
     private int toolbarColor = android.graphics.Color.LTGRAY;
@@ -686,6 +694,10 @@ public class InAppBrowser extends CordovaPlugin {
             if (closeButtonColorSet != null) {
                 closeButtonColor = closeButtonColorSet;
             }
+            String getLogoUrl = features.get(BRAND_LOGO);
+            if (getLogoUrl != null) {
+                brandLogoURL = getLogoUrl;
+            }
             String leftToRightSet = features.get(LEFT_TO_RIGHT);
             leftToRight = leftToRightSet != null && leftToRightSet.equals("yes");
 
@@ -736,7 +748,16 @@ public class InAppBrowser extends CordovaPlugin {
                 View _close;
                 Resources activityRes = cordova.getActivity().getResources();
 
-                if (closeButtonCaption != "") {
+
+                if(Objects.equals(closeButtonCaption, "backchevron")){
+                    TextView close = new TextView(cordova.getActivity());
+                    close.setText("\u3008");
+                    close.setTextSize(22);
+                    if (closeButtonColor != "") close.setTextColor(android.graphics.Color.parseColor(closeButtonColor));
+                    close.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    // close.setPadding(this.dpToPixels(10), 0, this.dpToPixels(10), 0);
+                    _close = close;
+                } else if (closeButtonCaption != "") {
                     // Use TextView for text
                     TextView close = new TextView(cordova.getActivity());
                     close.setText(closeButtonCaption);
@@ -773,6 +794,46 @@ public class InAppBrowser extends CordovaPlugin {
                 });
 
                 return _close;
+            }
+
+            public void loadBrandLogo(String brandLogoURL) {
+                // Check if brandLogoURL is present and valid
+                if (brandLogoURL != null && !brandLogoURL.isEmpty()) {
+                    // Initialize the 'brandLogoImgView' ImageView
+                    brandLogoImgView = new ImageView(cordova.getActivity());
+                    RelativeLayout.LayoutParams logoLayoutParams = new RelativeLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT);
+                    logoLayoutParams.addRule(RelativeLayout.CENTER_HORIZONTAL); // Position the brandLogoImgView between buttons
+                    brandLogoImgView.setLayoutParams(logoLayoutParams);
+                    brandLogoImgView.setId(Integer.valueOf(6));
+
+                    // Asynchronously load the brandLogoImgView from the brandLogoURL
+                    new AsyncTask<String, Void, Bitmap>() {
+                        @Override
+                        protected Bitmap doInBackground(String... urls) {
+                            String logoUrl = urls[0];
+                            try {
+                                InputStream in = new java.net.URL(logoUrl).openStream();
+                                return BitmapFactory.decodeStream(in);
+                            } catch (Exception e) {
+                                Log.e("Error", e.getMessage());
+                                e.printStackTrace();
+                                return null;
+                            }
+                        }
+
+                        @Override
+                        protected void onPostExecute(Bitmap result) {
+                            // Update the 'brandLogoImgView' ImageView with the bitmap result
+                            if (result != null) {
+                                brandLogoImgView.setImageBitmap(result);
+                                brandLogoImgView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                            } else {
+                                // Handle the case where the brandLogoImgView couldn't be loaded
+                                brandLogoImgView = null;
+                            }
+                        }
+                    }.execute(brandLogoURL);
+                }
             }
 
             @SuppressLint("NewApi")
@@ -1008,9 +1069,13 @@ public class InAppBrowser extends CordovaPlugin {
                 actionButtonContainer.addView(back);
                 actionButtonContainer.addView(forward);
 
+                // handle brandLogoImgView
+                loadBrandLogo(brandLogoURL);
+                if(brandLogoImgView != null) toolbar.addView(brandLogoImgView);
+
                 // Add the views to our toolbar if they haven't been disabled
                 if (!hideNavigationButtons) toolbar.addView(actionButtonContainer);
-                if (!hideUrlBar) toolbar.addView(edittext);
+                if (!hideUrlBar && brandLogoImgView == null) toolbar.addView(edittext);
 
                 // Don't add the toolbar if its been disabled
                 if (getShowLocationBar()) {

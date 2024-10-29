@@ -36,7 +36,7 @@
 
 #define    IAB_BRIDGE_NAME @"cordova_iab"
 
-#define    TOOLBAR_HEIGHT 44.0
+#define    TOOLBAR_HEIGHT 50.0
 #define    LOCATIONBAR_HEIGHT 21.0
 #define    FOOTER_HEIGHT ((TOOLBAR_HEIGHT) + (LOCATIONBAR_HEIGHT))
 
@@ -818,6 +818,42 @@ BOOL isExiting = FALSE;
     self.spinner.userInteractionEnabled = NO;
     [self.spinner stopAnimating];
     
+    
+    UIBarButtonItem *logoBarButtonItem = nil; // Initialize it to nil first
+
+    // Create the UIImageView for the logo
+    UIImageView *logoView = [[UIImageView alloc] init];
+    logoView.contentMode = UIViewContentModeScaleAspectFit;
+    logoView.translatesAutoresizingMaskIntoConstraints = NO; // Enable Auto Layout
+
+    // Load the logo image from the URL provided in _browserOptions.brandlogo
+    NSURL *logoURL = [NSURL URLWithString:_browserOptions.brandlogo ?: @""];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSData *imageData = [NSData dataWithContentsOfURL:logoURL];
+        if (imageData) {
+            UIImage *logoImage = [UIImage imageWithData:imageData];
+            if (logoImage) {
+                
+                // Update the UIImageView on the main thread
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    logoView.image = logoImage;
+                });
+            } else {
+                NSLog(@"Failed to create image from data.");
+            }
+        } else {
+            NSLog(@"Failed to load image data from URL: %@", logoURL);
+        }
+    });
+
+    // Create the UIBarButtonItem with the logo view
+    logoBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:logoView];
+    
+    // Add constraints for logo size (auto-resizing based on aspect ratio)
+    [logoView.widthAnchor constraintEqualToConstant:75].active = YES; // Desired width
+    [logoView.heightAnchor constraintEqualToAnchor:logoView.widthAnchor multiplier:1.0].active = YES; // Aspect ratio 1:1 (adjust multiplier as needed)
+
+    
     self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
     self.closeButton.enabled = YES;
     
@@ -899,14 +935,14 @@ BOOL isExiting = FALSE;
     // Filter out Navigation Buttons if user requests so
     if (_browserOptions.hidenavigationbuttons) {
         if (_browserOptions.lefttoright) {
-            [self.toolbar setItems:@[flexibleSpaceButton, self.closeButton]];
+            [self.toolbar setItems:@[flexibleSpaceButton, logoBarButtonItem, flexibleSpaceButton, self.closeButton]];
         } else {
-            [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton]];
+            [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, logoBarButtonItem, flexibleSpaceButton]];
         }
     } else if (_browserOptions.lefttoright) {
-        [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, self.closeButton]];
+        [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, logoBarButtonItem, flexibleSpaceButton, self.closeButton]];
     } else {
-        [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.backButton, fixedSpaceButton, self.forwardButton]];
+        [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, logoBarButtonItem, flexibleSpaceButton, self.backButton, fixedSpaceButton, self.forwardButton]];
     }
     
     self.view.backgroundColor = [UIColor clearColor];
@@ -931,7 +967,17 @@ BOOL isExiting = FALSE;
     // but, if you want to set this yourself, knock yourself out (we can't set the title for a system Done button, so we have to create a new one)
     self.closeButton = nil;
     // Initialize with title if title is set, otherwise the title will be 'Done' localized
-    self.closeButton = title != nil ? [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStyleBordered target:self action:@selector(close)] : [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+    
+    if ([title containsString:@"backchevron"]) {
+        // Use the chevron system image with the title (e.g., "Back" in "chevron Back")
+        NSString *updatedTitle = [title stringByReplacingOccurrencesOfString:@"backchevron" withString:@""];
+        self.closeButton = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"chevron.left"] landscapeImagePhone:nil style:UIBarButtonItemStylePlain target:self action:@selector(close)];
+    } else if (title != nil) {
+        self.closeButton = [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStyleBordered target:self action:@selector(close)];
+    } else {
+        self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+    }
+
     self.closeButton.enabled = YES;
     // If color on closebutton is requested then initialize with that that color, otherwise use initialize with default
     self.closeButton.tintColor = colorString != nil ? [self colorFromHexString:colorString] : [UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1];
@@ -1144,21 +1190,29 @@ BOOL isExiting = FALSE;
 - (void) rePositionViews {
     CGRect viewBounds = [self.webView bounds];
     CGFloat statusBarHeight = [self getStatusBarOffset];
-    
-    // orientation portrait or portraitUpsideDown: status bar is on the top and web view is to be aligned to the bottom of the status bar
-    // orientation landscapeLeft or landscapeRight: status bar height is 0 in but lets account for it in case things ever change in the future
-    viewBounds.origin.y = statusBarHeight;
-    
-    // account for web view height portion that may have been reduced by a previous call to this method
-    viewBounds.size.height = viewBounds.size.height - statusBarHeight + lastReducedStatusBarHeight;
-    lastReducedStatusBarHeight = statusBarHeight;
-    
-    if ((_browserOptions.toolbar) && ([_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop])) {
-        // if we have to display the toolbar on top of the web view, we need to account for its height
-        viewBounds.origin.y += TOOLBAR_HEIGHT;
-        self.toolbar.frame = CGRectMake(self.toolbar.frame.origin.x, statusBarHeight, self.toolbar.frame.size.width, self.toolbar.frame.size.height);
+
+    // Check if the presentation style is "pagesheet"
+    if ([_browserOptions.presentationstyle isEqualToString:@"pagesheet"] || [_browserOptions.presentationstyle isEqualToString:@"formsheet"]) {
+        if (_browserOptions.toolbar && [_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop]) {
+            // Account for toolbar height if it's on top of the web view
+            viewBounds.origin.y += TOOLBAR_HEIGHT;
+        }
+    } else {
+        // orientation portrait or portraitUpsideDown: status bar is on the top and web view is to be aligned to the bottom of the status bar
+        // orientation landscapeLeft or landscapeRight: status bar height is 0 in but lets account for it in case things ever change in the future
+        viewBounds.origin.y = statusBarHeight;
+        
+        // account for web view height portion that may have been reduced by a previous call to this method
+        viewBounds.size.height = viewBounds.size.height - statusBarHeight + lastReducedStatusBarHeight;
+        lastReducedStatusBarHeight = statusBarHeight;
+        
+        if ((_browserOptions.toolbar) && ([_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop])) {
+            // if we have to display the toolbar on top of the web view, we need to account for its height
+            viewBounds.origin.y += TOOLBAR_HEIGHT;
+            self.toolbar.frame = CGRectMake(self.toolbar.frame.origin.x, statusBarHeight, self.toolbar.frame.size.width, self.toolbar.frame.size.height);
+        }
     }
-    
+
     self.webView.frame = viewBounds;
 }
 
